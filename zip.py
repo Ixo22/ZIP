@@ -3,214 +3,214 @@ from tkinter import messagebox
 import threading
 import time
 
-class ZipSolverApp:
+class ZipSolverInteractive:
     def __init__(self, root):
         self.root = root
-        self.root.title("Solver Zip LinkedIn - Lógica Correcta (Checkpoints)")
-        
-        # AJUSTE: LinkedIn suele usar tableros más grandes. Ponemos 7x7 por defecto.
+        self.root.title("Solver ZIP - Edición Interactiva & Gradiente")
+        self.root.configure(bg="#f0f2f5") 
+
         self.FILAS = 7
         self.COLS = 7
-        
-        self.celdas_var = [] 
-        self.entries = []    
-        self.original_board = [] # Guardamos qué era pista y qué era vacío
+        self.CELL_SIZE = 60 
+
+        # --- ESTADO INTERNO ---
+        self.grid_state = [[0 for _ in range(self.COLS)] for _ in range(self.FILAS)]
+        self.cell_labels = [[None for _ in range(self.COLS)] for _ in range(self.FILAS)]
+        self.next_number_to_place = 1
 
         self.crear_interfaz()
 
     def crear_interfaz(self):
-        main_frame = tk.Frame(self.root, padx=10, pady=10)
-        main_frame.pack(side=tk.LEFT)
+        # Panel izquierdo 
+        left_panel = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y)
 
-        tk.Label(main_frame, text="1. Pon los Checkpoints (1, 2, 3...)\n2. Pon 'X' en muros.\n3. Deja vacíos (0) los caminos.", font=('Arial', 9)).grid(row=0, column=0, columnspan=self.FILAS)
+        tk.Label(left_panel, text="Instrucciones:", font=("Arial", 12, "bold"), bg="#f0f2f5").pack(anchor="w")
+        instr_text = (
+            "• Clic en Vacío → Pone número.\n"
+            "• Clic en Número → Pone Muro (X).\n"
+            "• Clic en Muro → Borra."
+        )
+        tk.Label(left_panel, text=instr_text, font=("Arial", 10), justify=tk.LEFT, bg="#f0f2f5", pady=10).pack(anchor="w")
+
+        # --- CORRECCIÓN AQUÍ: Cambiado 'py=10' por 'pady=10' ---
+        btn_solve = tk.Button(left_panel, text="RESOLVER", command=self.iniciar_thread_solver, 
+                              bg="#0a66c2", fg="white", font=('Arial', 14, 'bold'), cursor="hand2", pady=10)
+        btn_solve.pack(fill=tk.X, pady=(20, 10))
+
+        btn_reset = tk.Button(left_panel, text="Reiniciar Tablero", command=self.reset_board,
+                              bg="#dce6f1", fg="#0a66c2", font=('Arial', 11), cursor="hand2")
+        btn_reset.pack(fill=tk.X)
+
+        # Panel derecho (Grid)
+        grid_frame = tk.Frame(self.root, bg="white", bd=2, relief=tk.RIDGE)
+        grid_frame.pack(side=tk.RIGHT, padx=20, pady=20)
 
         for r in range(self.FILAS):
-            fila_vars = []
-            fila_entries = []
             for c in range(self.COLS):
-                var = tk.StringVar()
-                var.trace("w", lambda name, index, mode, v=var: self.validar_input(v))
-                
-                # Fuente más pequeña si el tablero es grande
-                entry = tk.Entry(main_frame, textvariable=var, width=3, justify='center', font=('Arial', 14))
-                entry.grid(row=r+1, column=c, padx=1, pady=1)
-                
-                fila_vars.append(var)
-                fila_entries.append(entry)
-            self.celdas_var.append(fila_vars)
-            self.entries.append(fila_entries)
+                lbl = tk.Label(grid_frame, text="", width=4, height=2, 
+                               font=('Arial', 20, 'bold'), bd=1, relief="solid", bg="white")
+                lbl.place(x=c*self.CELL_SIZE, y=r*self.CELL_SIZE, width=self.CELL_SIZE, height=self.CELL_SIZE)
+                lbl.bind("<Button-1>", lambda event, row=r, col=c: self.handle_cell_click(row, col))
+                self.cell_labels[r][c] = lbl
 
-        btn_solve = tk.Button(main_frame, text="RESOLVER", command=self.iniciar_thread, bg="#0a66c2", fg="white", font=('Arial', 12, 'bold'))
-        btn_solve.grid(row=self.FILAS+1, column=0, columnspan=self.FILAS, pady=10, sticky="ew")
+        grid_frame.config(width=self.COLS*self.CELL_SIZE, height=self.FILAS*self.CELL_SIZE)
+
+    # --- LÓGICA DE EDICIÓN ---
+    def handle_cell_click(self, r, c):
+        current_val = self.grid_state[r][c]
+
+        if current_val == 0: # Poner número
+            num_to_set = self.next_number_to_place
+            self.grid_state[r][c] = num_to_set
+            self.update_cell_visual(r, c, str(num_to_set), "white", "black")
+            self.next_number_to_place += 1
+
+        elif current_val > 0: # Poner muro y renumerar
+            deleted_num = current_val
+            self.grid_state[r][c] = -1 
+            self.update_cell_visual(r, c, "X", "#333333", "white")
+            self.renumber_subsequent_pins(deleted_num)
+
+        elif current_val == -1: # Borrar muro
+            self.grid_state[r][c] = 0
+            self.update_cell_visual(r, c, "", "white", "black")
+
+    def renumber_subsequent_pins(self, deleted_num):
+        max_found = 0
+        for r in range(self.FILAS):
+            for c in range(self.COLS):
+                val = self.grid_state[r][c]
+                if val > 0:
+                    if val > deleted_num:
+                        new_val = val - 1
+                        self.grid_state[r][c] = new_val
+                        self.update_cell_visual(r, c, str(new_val), "white", "black")
+                        if new_val > max_found: max_found = new_val
+                    elif val > max_found:
+                         max_found = val
+        self.next_number_to_place = max_found + 1
+
+    def update_cell_visual(self, r, c, text, bg_color, fg_color="black"):
+        lbl = self.cell_labels[r][c]
+        lbl.config(text=text, bg=bg_color, fg=fg_color)
+
+    def reset_board(self):
+        self.grid_state = [[0 for _ in range(self.COLS)] for _ in range(self.FILAS)]
+        self.next_number_to_place = 1
+        for r in range(self.FILAS):
+            for c in range(self.COLS):
+                self.update_cell_visual(r, c, "", "white")
+
+    # --- LÓGICA RESOLVER ---
+    def iniciar_thread_solver(self):
+        # Limpieza visual previa
+        for r in range(self.FILAS):
+            for c in range(self.COLS):
+                val = self.grid_state[r][c]
+                if val == 0: self.update_cell_visual(r, c, "", "white")
+                elif val > 0: self.update_cell_visual(r, c, str(val), "white", "black")
         
-        btn_clear = tk.Button(main_frame, text="Limpiar", command=self.limpiar_tablero)
-        btn_clear.grid(row=self.FILAS+2, column=0, columnspan=self.FILAS, sticky="ew")
+        threading.Thread(target=self.start_solving).start()
 
-        # --- LOGS ---
-        log_frame = tk.Frame(self.root, padx=10, pady=10)
-        log_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        self.log_text = tk.Text(log_frame, width=30, height=20, state='disabled', font=('Consolas', 9))
-        self.log_text.pack()
-
-    def log(self, mensaje):
-        self.log_text.config(state='normal')
-        self.log_text.insert(tk.END, "> " + mensaje + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.config(state='disabled')
-
-    def validar_input(self, var):
-        val = var.get()
-        if val.lower() == 'x': var.set('X')
-
-    def limpiar_tablero(self):
-        for r in range(self.FILAS):
-            for c in range(self.COLS):
-                self.celdas_var[r][c].set("")
-                self.entries[r][c].config(bg="white", fg="black")
-        self.log_text.config(state='normal')
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state='disabled')
-
-    def leer_tablero_gui(self):
-        tablero = []
-        try:
-            for r in range(self.FILAS):
-                fila = []
-                for c in range(self.COLS):
-                    val = self.celdas_var[r][c].get().strip().upper()
-                    if val == "": fila.append(0)
-                    elif val == "X": fila.append(-1)
-                    else: fila.append(int(val))
-                tablero.append(fila)
-            return tablero
-        except ValueError:
-            messagebox.showerror("Error", "Solo números o 'X'")
-            return None
-
-    def iniciar_thread(self):
-        threading.Thread(target=self.preparar_resolucion).start()
-
-    def preparar_resolucion(self):
-        self.log("Analizando tablero...")
-        tablero = self.leer_tablero_gui()
-        if tablero is None: return
-
-        # Guardamos una copia para saber qué era original y qué es solución
-        self.original_board = [fila[:] for fila in tablero]
-
-        checkpoints = [] # Lista de números fijos [1, 2, 3, 4]
+    def start_solving(self):
+        tablero_trabajo = [fila[:] for fila in self.grid_state]
+        checkpoints = []
         total_jugables = 0
         inicio = None
 
-        posiciones_pins = {}
-
         for r in range(self.FILAS):
             for c in range(self.COLS):
-                val = tablero[r][c]
-                if val != -1: 
-                    total_jugables += 1
+                val = tablero_trabajo[r][c]
+                if val != -1: total_jugables += 1
                 if val > 0:
                     checkpoints.append(val)
-                    posiciones_pins[val] = (r, c)
                     if val == 1: inicio = (r, c)
-
+        
         checkpoints.sort()
-        
+
         if not checkpoints or checkpoints[0] != 1:
-            self.log("ERROR: Falta el 1.")
+            messagebox.showerror("Error", "Falta el número 1.")
             return
-
-        self.log(f"Checkpoints: {checkpoints}")
-        self.log(f"Casillas a llenar: {total_jugables}")
-
-        # INICIAR BACKTRACKING
-        # Estado: (tablero, r, c, camino, indice_del_siguiente_checkpoint)
-        # target_idx = 1 significa que estamos buscando el valor checkpoints[1] (que es el 2)
         
-        # El 1 ya está visitado, así que empezamos buscando el siguiente (el 2)
-        idx_objetivo_inicial = 1 
-        
-        t_inicio = time.time()
-        solucion = self.backtracking(tablero, inicio[0], inicio[1], [inicio], total_jugables, checkpoints, idx_objetivo_inicial)
-        t_fin = time.time()
+        # Validar secuencia
+        for i in range(len(checkpoints)):
+            if checkpoints[i] != i + 1:
+                 messagebox.showerror("Error", f"Secuencia incompleta. Falta el {i+1}.")
+                 return
+
+        idx_objetivo_inicial = 1
+        solucion = self.backtracking_solver(tablero_trabajo, inicio[0], inicio[1], [inicio], total_jugables, checkpoints, idx_objetivo_inicial)
 
         if solucion:
-            self.log(f"¡SOLUCIÓN! ({round(t_fin - t_inicio, 2)}s)")
-            self.pintar_solucion(solucion)
+            self.visualize_gradient_path(solucion)
         else:
-            self.log("No se encontró solución.")
+            messagebox.showwarning("Ups", "No se encontró solución.")
 
-    def backtracking(self, tablero, r, c, camino, meta_pasos, checkpoints, idx_objetivo):
-        """
-        r, c: Posición actual
-        camino: Lista de tuplas visitadas
-        meta_pasos: Cuántas casillas totales hay que cubrir
-        checkpoints: Lista [1, 2, 3, 4...]
-        idx_objetivo: Índice en 'checkpoints' del número que buscamos ahora.
-                      Si buscamos el 2, idx_objetivo es 1.
-        """
-        
-        # 1. HEMOS TERMINADO?
-        # Si hemos visitado todas las casillas Y estamos en el último número
+    def backtracking_solver(self, tablero, r, c, camino, meta_pasos, checkpoints, idx_objetivo):
         if len(camino) == meta_pasos:
-            # Verificar si el último paso es el último checkpoint
-            if tablero[r][c] == checkpoints[-1]:
-                return camino
-            return None # Llenamos el tablero pero no acabamos en el final correcto
+            if tablero[r][c] == checkpoints[-1]: return camino
+            return None
 
-        # Valor que estamos buscando ahora mismo (ej: 2)
-        # Si ya hemos encontrado el último (ej: 4), ya no buscamos nada, solo llenar huecos vacios hasta acabar
         valor_objetivo = checkpoints[idx_objetivo] if idx_objetivo < len(checkpoints) else 9999
-
         movimientos = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
         for dr, dc in movimientos:
             nr, nc = r + dr, c + dc
-
-            # Validar límites
             if 0 <= nr < self.FILAS and 0 <= nc < self.COLS:
                 val_vecino = tablero[nr][nc]
-                
-                # Si no es muro y no está visitado
                 if val_vecino != -1 and (nr, nc) not in camino:
-                    
                     nuevo_idx_objetivo = idx_objetivo
-                    es_movimiento_valido = False
-
-                    # CASO A: Es una casilla vacía (0)
-                    if val_vecino == 0:
-                        es_movimiento_valido = True
+                    es_movido_valido = False
                     
-                    # CASO B: Es un número (Checkpoint)
-                    elif val_vecino > 0:
-                        # Solo podemos entrar si es EXACTAMENTE el objetivo actual
-                        if val_vecino == valor_objetivo:
-                            es_movimiento_valido = True
-                            nuevo_idx_objetivo += 1 # ¡Lo encontramos! Ahora buscamos el siguiente
-                        else:
-                            # Es un número, pero no el que toca (ej: encontramos el 4 buscando el 2) -> Prohibido
-                            es_movimiento_valido = False 
-
-                    if es_movimiento_valido:
-                        res = self.backtracking(tablero, nr, nc, camino + [(nr, nc)], meta_pasos, checkpoints, nuevo_idx_objetivo)
+                    if val_vecino == 0:
+                        es_movido_valido = True
+                    elif val_vecino == valor_objetivo:
+                        es_movido_valido = True
+                        nuevo_idx_objetivo += 1
+                    
+                    if es_movido_valido:
+                        res = self.backtracking_solver(tablero, nr, nc, camino + [(nr, nc)], meta_pasos, checkpoints, nuevo_idx_objetivo)
                         if res: return res
-
         return None
 
-    def pintar_solucion(self, camino):
-        # camino es la lista ordenada de pasos [(0,0), (0,1), (0,2)...]
-        for paso_num, (r, c) in enumerate(camino):
-            val_paso = paso_num + 1 # Paso 1, Paso 2...
+    # --- GRADIENTE ---
+    def visualize_gradient_path(self, camino):
+        total_steps = len(camino)
+        if total_steps <= 1: return
+
+        # Colores (Rojo suave -> Naranja/Amarillo)
+        start_color_hex = "#FF5F6D"
+        end_color_hex = "#FFC371"
+
+        for i, (r, c) in enumerate(camino):
+            fraction = i / (total_steps - 1)
+            color_hex = self._get_gradient_color(start_color_hex, end_color_hex, fraction)
             
-            # Si era una casilla vacía originalmente, mostramos el número de paso
-            if self.original_board[r][c] == 0:
-                self.celdas_var[r][c].set(str(val_paso))
-                self.entries[r][c].config(fg="blue", bg="#d1e7dd") # Azul para los pasos calculados
-            else:
-                # Si era un Checkpoint original, lo dejamos en negro/negrita pero cambiamos fondo
-                self.entries[r][c].config(bg="#a3cfbb", font=('Arial', 14, 'bold'))
+            original_val = self.grid_state[r][c]
+            text_to_show = str(original_val) if original_val > 0 else ""
+            
+            self.update_cell_visual(r, c, text_to_show, color_hex, "white")
+            self.root.update_idletasks()
+
+    def _get_gradient_color(self, start_hex, end_hex, fraction):
+        def hex_to_rgb(h):
+            h = h.lstrip('#')
+            return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+        def rgb_to_hex(rgb):
+            return '#%02x%02x%02x' % tuple(int(c) for c in rgb)
+
+        r1, g1, b1 = hex_to_rgb(start_hex)
+        r2, g2, b2 = hex_to_rgb(end_hex)
+
+        r = r1 + (r2 - r1) * fraction
+        g = g1 + (g2 - g1) * fraction
+        b = b1 + (b2 - b1) * fraction
+
+        return rgb_to_hex((r, g, b))
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ZipSolverApp(root)
+    app = ZipSolverInteractive(root)
     root.mainloop()
